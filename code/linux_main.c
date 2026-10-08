@@ -1,12 +1,13 @@
 
 #include "shared.c"
 #include "render.c"
+#include "input.c"
 #include "platform.c"
 #include "game.c"
 
 #include "vulkan_render.c"
-#include "wayland_window.c"
 #include "linux_platform.c"
+#include "wayland_window.c"
 
 local void* LinuxLoadVkGetInstanceProcAddr(void)
 {
@@ -41,12 +42,25 @@ void LinuxEntry(s32 ArgCount, char* Args[], char* Envp[])
 
     ExitErrorIfNot(VulkanGood);
 
+    input_array Inputs = {0};
+    {
+        persist input_event Memory[1024] = {0};
+
+        Inputs.Events = Memory;
+        Inputs.MaxEventCount = ArrayCount(Memory);
+    }
+
     render_array Renders = {0};
     {
         persist render_rect Memory[4096] = {0};
 
-        Renders.Rects           = Memory;
-        Renders.MaxRectCount    = ArrayCount(Memory);
+        Renders.Rects = Memory;
+        Renders.MaxRectCount = ArrayCount(Memory);
+    }
+
+    game_state Game = {0};
+    {
+        GameSetup(&Game);
     }
 
     f32 UpdateTimeStep  = 1.0f/80.0f;
@@ -57,15 +71,18 @@ void LinuxEntry(s32 ArgCount, char* Args[], char* Envp[])
 
     while (!WaylandIsClosed(&Wayland))
     {
-        WaylandPollEvents(&Wayland);
+        WaylandPollEvents(&Wayland, &Inputs);
 
         while (UpdateTimer >= UpdateTimeStep)
         {
-            GameUpdate(UpdateTimeStep);
+            GameUpdate(&Game, &Inputs, UpdateTimeStep);
+            ResetInputs(&Inputs);
+
             UpdateTimer -= UpdateTimeStep;
         }
 
-        GameRender(&Renders);
+        ResetRenders(&Renders);
+        GameRender(&Game, &Renders, UpdateTimer);
 
         VulkanRender(&Vulkan, &(vulkan_render_info)
         {

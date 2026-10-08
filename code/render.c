@@ -23,7 +23,7 @@ local void ResetRenders(render_array* Renders);
 
 local void RenderRect(
     render_array* Renders,
-    f32 X, f32 Y,
+    f32 X, f32 Y, // NOTE(vak): Center
     f32 W, f32 H,
     f32 R, f32 G, f32 B, f32 A
 );
@@ -48,8 +48,8 @@ local void RenderRect(
     {
         render_rect* Rect = Renders->Rects + Renders->RectCount++;
 
-        Rect->X = X;
-        Rect->Y = Y;
+        Rect->X = X - 0.5f*W;
+        Rect->Y = Y - 0.5f*H;
         Rect->W = W;
         Rect->H = H;
 

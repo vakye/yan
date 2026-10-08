@@ -5,6 +5,7 @@
 // NOTE(vak): Cheatsheet
 // ============================================================================
 
+#include <xkbcommon/xkbcommon.h>
 #include <wayland-client.h>
 #include "wayland_xdg.c"
 
@@ -19,10 +20,19 @@ typedef struct
     struct xdg_surface*     XdgSurface;
     struct xdg_toplevel*    XdgTopLevel;
 
+    struct wl_seat*         Seat;
+    struct wl_keyboard*     Keyboard;
+
+    struct xkb_context*     XkbContext;
+    struct xkb_keymap*      XkbKeymap;
+    struct xkb_state*       XkbState;
+
+    input_array*            Inputs;
+
     u32 TopLevelSizeX, TopLevelSizeY;
     u32 SizeX, SizeY;
     b32 IsClosed;
-    u32 RefreshRate;
+    f32 RefreshRate;
 } wayland_state;
 
 local b32                   WaylandSetup            (wayland_state* Wayland);
@@ -31,8 +41,8 @@ local struct wl_surface*    WaylandGetSurface       (wayland_state* Wayland);
 local b32                   WaylandIsClosed         (wayland_state* Wayland);
 local u32                   WaylandGetSizeX         (wayland_state* Wayland);
 local u32                   WaylandGetSizeY         (wayland_state* Wayland);
-local u32                   WaylandGetRefreshRate   (wayland_state* Wayland);
-local void                  WaylandPollEvents       (wayland_state* Wayland);
+local f32                   WaylandGetRefreshRate   (wayland_state* Wayland);
+local void                  WaylandPollEvents       (wayland_state* Wayland, input_array* Inputs);
 local void                  WaylandPresent          (wayland_state* Wayland);
 
 // ============================================================================
@@ -57,6 +67,10 @@ local void WaylandRegistryGlobalEvent(
     else if (StringEquals(InterfaceString, CString(wl_output_interface.name)))
     {
         Wayland->Output = wl_registry_bind(Registry, Name, &wl_output_interface, Version);
+    }
+    else if (StringEquals(InterfaceString, CString(wl_seat_interface.name)))
+    {
+        Wayland->Seat = wl_registry_bind(Registry, Name, &wl_seat_interface, Version);
     }
     else if (StringEquals(InterfaceString, CString(xdg_wm_base_interface.name)))
     {
@@ -106,7 +120,7 @@ local void WaylandOutputModeEvent(
 
     if (Flags & WL_OUTPUT_MODE_CURRENT)
     {
-        Wayland->RefreshRate = Maximum(0, Refresh);
+        Wayland->RefreshRate = Maximum(0, Refresh) / 1000.0f;
     }
 }
 
@@ -149,6 +163,155 @@ local struct wl_output_listener WaylandOutputListener =
     .scale = &WaylandOutputScaleEvent,
     .name = &WaylandOutputNameEvent,
     .description = &WaylandOutputDescriptionEvent,
+};
+
+local void WaylandKeyboardKeymapEvent(
+    void*               Data,
+    struct wl_keyboard* Keyboard,
+    u32                 Format,
+    s32                 FileDescriptor,
+    u32                 Size
+)
+{
+    wayland_state* Wayland = (wayland_state*)Data;
+
+    if (Format != WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1)
+        return;
+
+    void* KeymapString = mmap(0, Size, PROT_READ, MAP_PRIVATE, FileDescriptor, 0);
+    if (!KeymapString)
+        return;
+
+    Wayland->XkbContext = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    if (!Wayland->XkbContext)
+        return;
+
+    Wayland->XkbKeymap = xkb_keymap_new_from_string(Wayland->XkbContext, KeymapString, XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
+    if (!Wayland->XkbKeymap)
+        return;
+
+    Wayland->XkbState = xkb_state_new(Wayland->XkbKeymap);
+}
+
+local void WaylandKeyboardEnterEvent(
+    void*               Data,
+    struct wl_keyboard* Keyboard,
+    u32                 Serial,
+    struct wl_surface*  Surface,
+    struct wl_array*    Keys
+)
+{
+}
+
+local void WaylandKeyboardLeaveEvent(
+    void*               Data,
+    struct wl_keyboard* Keyboard,
+    u32                 Serial,
+    struct wl_surface*  Surface
+)
+{
+}
+
+local void WaylandKeyboardKeyEvent(
+    void*               Data,
+    struct wl_keyboard* Keyboard,
+    u32                 Serial,
+    u32                 Time,
+    u32                 EvdevScancode,
+    u32                 State
+)
+{
+    wayland_state* Wayland = (wayland_state*)Data;
+
+    if (!Wayland->XkbState)
+        return;
+
+    u32 XkbScancode = EvdevScancode + 8;
+    xkb_keysym_t KeySym = xkb_state_key_get_one_sym(Wayland->XkbState, XkbScancode);
+
+    b32 IsDown = (State == WL_KEYBOARD_KEY_STATE_PRESSED);
+
+    input_button Button = InputButton_Nil;
+
+    switch (KeySym)
+    {
+        default: break;
+
+        case XKB_KEY_w: case XKB_KEY_W: Button = InputButton_KeyW; break;
+        case XKB_KEY_a: case XKB_KEY_A: Button = InputButton_KeyA; break;
+        case XKB_KEY_s: case XKB_KEY_S: Button = InputButton_KeyS; break;
+        case XKB_KEY_d: case XKB_KEY_D: Button = InputButton_KeyD; break;
+
+        case XKB_KEY_Up:    Button = InputButton_KeyUp;     break;
+        case XKB_KEY_Down:  Button = InputButton_KeyDown;   break;
+        case XKB_KEY_Left:  Button = InputButton_KeyLeft;   break;
+        case XKB_KEY_Right: Button = InputButton_KeyRight;  break;
+    }
+
+    AddInputEventButton(Wayland->Inputs, Button, IsDown);
+}
+
+local void WaylandKeyboardModifiersEvent(
+    void*               Data,
+    struct wl_keyboard* Keyboard,
+    u32                 Serial,
+    u32                 ModifiersDepressed,
+    u32                 ModifiersLatched,
+    u32                 ModifiersLocked,
+    u32                 Group
+)
+{
+}
+
+local void WaylandKeyboardRepeatInfoEvent(
+    void*               Data,
+    struct wl_keyboard* Keyboard,
+    s32                 Rate,
+    s32                 Delay
+)
+{
+}
+
+local struct wl_keyboard_listener WaylandKeyboardListener =
+{
+    .keymap = &WaylandKeyboardKeymapEvent,
+    .enter = &WaylandKeyboardEnterEvent,
+    .leave = &WaylandKeyboardLeaveEvent,
+    .key = &WaylandKeyboardKeyEvent,
+    .modifiers = &WaylandKeyboardModifiersEvent,
+    .repeat_info = &WaylandKeyboardRepeatInfoEvent,
+};
+
+local void WaylandSeatCapabilitiesEvent(
+    void*               Data,
+    struct wl_seat*     Seat,
+    u32                 Capabilities
+)
+{
+    wayland_state* Wayland = (wayland_state*)Data;
+
+    if (Wayland->Keyboard)
+        wl_keyboard_release(Wayland->Keyboard);
+
+    if (Capabilities & WL_SEAT_CAPABILITY_KEYBOARD)
+        Wayland->Keyboard = wl_seat_get_keyboard(Seat);
+
+    if (Wayland->Keyboard)
+        wl_keyboard_add_listener(Wayland->Keyboard, &WaylandKeyboardListener, Wayland);
+}
+
+local void WaylandSeatNameEvent(
+    void*               Data,
+    struct wl_seat*     Seat,
+    const char*         Name
+)
+{
+}
+
+local struct wl_seat_listener WaylandSeatListener =
+{
+    .capabilities = &WaylandSeatCapabilitiesEvent,
+    .name = &WaylandSeatNameEvent,
 };
 
 local void WaylandXdgWmBasePingEvent(
@@ -251,6 +414,9 @@ local b32 WaylandSetup(wayland_state* Wayland)
     if (Wayland->Output)
         wl_output_add_listener(Wayland->Output, &WaylandOutputListener, Wayland);
 
+    if (Wayland->Seat)
+        wl_seat_add_listener(Wayland->Seat, &WaylandSeatListener, Wayland);
+
     Wayland->Surface = wl_compositor_create_surface(Wayland->Compositor);
     if (!Wayland->Surface) return (false);
 
@@ -299,14 +465,16 @@ local u32 WaylandGetSizeY(wayland_state* Wayland)
     return (Wayland->SizeY);
 }
 
-local u32 WaylandGetRefreshRate(wayland_state* Wayland)
+local f32 WaylandGetRefreshRate(wayland_state* Wayland)
 {
-    return (Wayland->RefreshRate > 0) ? (60) : (Wayland->RefreshRate);
+    return (Wayland->RefreshRate > 0) ? (Wayland->RefreshRate) : (60);
 }
 
-local void WaylandPollEvents(wayland_state* Wayland)
+local void WaylandPollEvents(wayland_state* Wayland, input_array* Inputs)
 {
+    Wayland->Inputs = Inputs;
     wl_display_roundtrip(Wayland->Display);
+    Wayland->Inputs = 0;
 }
 
 local void WaylandPresent(wayland_state* Wayland)

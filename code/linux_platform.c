@@ -5,6 +5,9 @@
 // NOTE(vak): Syscall cheatsheet
 // ============================================================================
 
+#define PROT_READ   (0x01)
+#define MAP_PRIVATE (0x02)
+
 #define STDOUT_FILENO (1)
 #define STDERR_FILENO (2)
 
@@ -20,6 +23,7 @@ enum
 {
 #if ARCHITECTURE_X64
     SyscallNR_Write         = 1,
+    SyscallNR_MMap          = 9,
     SyscallNR_NanoSleep     = 35,
     SyscallNR_ClockGetTime  = 228,
     SyscallNR_ExitGroup     = 231,
@@ -32,6 +36,10 @@ local usize LinuxSyscallFull(usize NR, usize Args[6]);
 
 #define LinuxSyscall0(NR, ...) LinuxSyscallFull(NR, (usize[6]){0})
 #define LinuxSyscallX(NR, ...) LinuxSyscallFull(NR, (usize[6]){__VA_ARGS__})
+
+// NOTE(vak): For wayland_window.c
+#define mmap(Address, Length, Protection, Flags, FileDescriptor, Offset) \
+    (void*)LinuxSyscallX(SyscallNR_MMap, (usize)(Address), Length, Protection, Flags, FileDescriptor, Offset)
 
 // ============================================================================
 // NOTE(vak): Implementation of platform.c
@@ -56,13 +64,10 @@ local f64 GetSecondsElapsed(usize From, usize To)
 
 local void Wait(f64 Seconds)
 {
-    usize IntegerPart = (usize)Seconds;
-    f64   DecimalPart = Seconds - IntegerPart;
-
     struct timespec Duration =
     {
-        .Seconds        = IntegerPart,
-        .Nanoseconds    = (usize)(DecimalPart * 1e9) % 1000000000,
+        .Seconds        = (usize)(Seconds),
+        .Nanoseconds    = (usize)(Seconds * 1e9) % 1000000000,
     };
 
     while (Duration.Seconds || Duration.Nanoseconds)
