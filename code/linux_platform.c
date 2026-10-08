@@ -8,11 +8,21 @@
 #define STDOUT_FILENO (1)
 #define STDERR_FILENO (2)
 
+#define CLOCK_MONOTONIC (1)
+
+struct timespec
+{
+    usize Seconds;
+    ssize Nanoseconds;
+};
+
 enum
 {
 #if ARCHITECTURE_X64
-    SyscallNR_Write     = 1,
-    SyscallNR_ExitGroup = 231,
+    SyscallNR_Write         = 1,
+    SyscallNR_NanoSleep     = 35,
+    SyscallNR_ClockGetTime  = 228,
+    SyscallNR_ExitGroup     = 231,
 #else
     #error Linux syscall numbers are not defined for this architecture
 #endif
@@ -28,6 +38,45 @@ local usize LinuxSyscallFull(usize NR, usize Args[6]);
 // ============================================================================
 
 #include <dlfcn.h>
+
+local usize GetWallClock(void)
+{
+    struct timespec Now = {0};
+    LinuxSyscallX(SyscallNR_ClockGetTime, CLOCK_MONOTONIC, (usize)&Now);
+
+    usize Result = Now.Seconds*1000000000 + Now.Nanoseconds;
+    return (Result);
+}
+
+local f64 GetSecondsElapsed(usize From, usize To)
+{
+    f64 Result = (To - From) * 1e-9;
+    return (Result);
+}
+
+local void Wait(f64 Seconds)
+{
+    usize IntegerPart = (usize)Seconds;
+    f64   DecimalPart = Seconds - IntegerPart;
+
+    struct timespec Duration =
+    {
+        .Seconds        = IntegerPart,
+        .Nanoseconds    = (usize)(DecimalPart * 1e9) % 1000000000,
+    };
+
+    while (Duration.Seconds || Duration.Nanoseconds)
+    {
+        struct timespec Remainder = {0};
+
+        LinuxSyscallX(
+            SyscallNR_NanoSleep,
+            (usize)&Duration,
+            (usize)&Remainder);
+
+        Duration = Remainder;
+    }
+}
 
 local usize WriteStdOut(void* Data, usize Size)
 {

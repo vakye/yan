@@ -49,9 +49,21 @@ void LinuxEntry(s32 ArgCount, char* Args[], char* Envp[])
         Renders.MaxRectCount    = ArrayCount(Memory);
     }
 
+    f32 UpdateTimeStep  = 1.0f/80.0f;
+    f32 RenderTimeStep  = 1.0f/WaylandGetRefreshRate(&Wayland);
+    f32 UpdateTimer     = 0.0f;
+
+    usize FrameBegin = GetWallClock();
+
     while (!WaylandIsClosed(&Wayland))
     {
         WaylandPollEvents(&Wayland);
+
+        while (UpdateTimer >= UpdateTimeStep)
+        {
+            GameUpdate(UpdateTimeStep);
+            UpdateTimer -= UpdateTimeStep;
+        }
 
         GameRender(&Renders);
 
@@ -63,6 +75,14 @@ void LinuxEntry(s32 ArgCount, char* Args[], char* Envp[])
         });
 
         WaylandPresent(&Wayland);
+
+        f64 Elapsed = GetSecondsElapsed(FrameBegin, GetWallClock());
+
+        if (Elapsed < RenderTimeStep)
+            Wait(RenderTimeStep - Elapsed);
+
+        UpdateTimer += Elapsed;
+        FrameBegin = GetWallClock();
     }
 
     Exit(0);
