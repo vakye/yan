@@ -22,15 +22,13 @@ local void VulkanResizeSwapchain(
     u32 Height
 )
 {
-    #define VulkanReturnOnError(VulkanCall) if ((VulkanCall) != VK_SUCCESS) return
-
     if ((Swapchain->Extent.width == Width) &&
         (Swapchain->Extent.height == Height))
     {
         return;
     }
 
-    VulkanReturnOnError(API->DeviceWaitIdle(Device->Device));
+    VulkanCheck(API->DeviceWaitIdle(Device->Device));
 
     if (Swapchain->Swapchain)
     {
@@ -49,7 +47,7 @@ local void VulkanResizeSwapchain(
 
     VkSurfaceCapabilitiesKHR SurfaceCaps = {0};
 
-    VulkanReturnOnError(API->GetPhysicalDeviceSurfaceCapabilitiesKHR(
+    VulkanCheck(API->GetPhysicalDeviceSurfaceCapabilitiesKHR(
         Device->Physical,
         Surface,
         &SurfaceCaps
@@ -74,13 +72,13 @@ local void VulkanResizeSwapchain(
         .clipped = true,
     };
 
-    VulkanReturnOnError(API->CreateSwapchainKHR(
+    VulkanCheck(API->CreateSwapchainKHR(
         Device->Device, &SwapchainInfo, 0, &Swapchain->Swapchain
     ));
 
     Swapchain->ImageCount = ArrayCount(Swapchain->Images);
 
-    VulkanReturnOnError(API->GetSwapchainImagesKHR(
+    VulkanCheck(API->GetSwapchainImagesKHR(
         Device->Device,
         Swapchain->Swapchain,
         &Swapchain->ImageCount,
@@ -110,13 +108,11 @@ local void VulkanResizeSwapchain(
             },
         };
 
-        VulkanReturnOnError(API->CreateImageView(
+        VulkanCheck(API->CreateImageView(
             Device->Device, &ViewInfo, 0, &Swapchain->ImageViews[Index]
         ));
     }
 
-    VulkanReturnOnError(API->DeviceWaitIdle(Device->Device));
-
-    #undef VulkanReturnOnError
+    VulkanCheck(API->DeviceWaitIdle(Device->Device));
 }
 

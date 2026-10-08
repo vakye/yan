@@ -10,6 +10,9 @@
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_wayland.h>
 
+#define VulkanCheck(VulkanCall) \
+    if ((VulkanCall) != VK_SUCCESS) Assert(false)
+
 #include "vulkan_api.c"
 #include "vulkan_device.c"
 #include "vulkan_resources.c"
@@ -35,8 +38,9 @@ typedef struct
 
 typedef struct
 {
-    u32 TargetSizeX;
-    u32 TargetSizeY;
+    u32             TargetSizeX;
+    u32             TargetSizeY;
+    render_array*   Renders;
 } vulkan_render_info;
 
 typedef struct
@@ -80,8 +84,6 @@ typedef struct
 
 local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
 {
-    #define VulkanReturnOnError(VulkanCall) if ((VulkanCall) != VK_SUCCESS) return (false)
-
     if (!Info->vkGetInstanceProcAddr) return (false);
 
     vulkan_api* API = &Vulkan->API;
@@ -94,7 +96,7 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
         Vulkan->VersionOfAPI = VK_API_VERSION_1_4;
 
         u32 InstanceVersion = 0;
-        VulkanReturnOnError(
+        VulkanCheck(
             API->EnumerateInstanceVersion(&InstanceVersion)
         );
 
@@ -137,7 +139,7 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
             .ppEnabledExtensionNames = Extensions,
         };
 
-        VulkanReturnOnError(API->CreateInstance(
+        VulkanCheck(API->CreateInstance(
             &InstanceInfo, 0, &Vulkan->Instance
         ));
     }
@@ -165,7 +167,7 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
                     .surface = Info->WaylandSurface,
                 };
 
-                VulkanReturnOnError(API->CreateWaylandSurfaceKHR(
+                VulkanCheck(API->CreateWaylandSurfaceKHR(
                     Vulkan->Instance, &SurfaceInfo, 0, &Vulkan->Surface
                 ));
             } break;
@@ -186,7 +188,7 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
             .queueFamilyIndex = Device->QueueFamilyIndex,
         };
 
-        VulkanReturnOnError(API->CreateCommandPool(
+        VulkanCheck(API->CreateCommandPool(
             Device->Device, &PoolInfo, 0, &Vulkan->CommandPool
         ));
     }
@@ -201,7 +203,7 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
             .commandBufferCount = 1,
         };
 
-        VulkanReturnOnError(API->AllocateCommandBuffers(
+        VulkanCheck(API->AllocateCommandBuffers(
             Device->Device, &AllocateInfo, &Vulkan->CommandBuffer
         ));
     }
@@ -213,11 +215,11 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
             .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
         };
 
-        VulkanReturnOnError(API->CreateSemaphore(
+        VulkanCheck(API->CreateSemaphore(
             Device->Device, &SemaphoreInfo, 0, &Vulkan->AcquireSemaphore
         ));
 
-        VulkanReturnOnError(API->CreateSemaphore(
+        VulkanCheck(API->CreateSemaphore(
             Device->Device, &SemaphoreInfo, 0, &Vulkan->SubmitSemaphore
         ));
     }
@@ -227,7 +229,7 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
         VkSurfaceFormatKHR Array[512] = {0};
         u32 Count = ArrayCount(Array);
 
-        VulkanReturnOnError(API->GetPhysicalDeviceSurfaceFormatsKHR(
+        VulkanCheck(API->GetPhysicalDeviceSurfaceFormatsKHR(
             Device->Physical,
             Vulkan->Surface,
             &Count,
@@ -261,7 +263,7 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
         VkPresentModeKHR Array[64] = {0};
         u32 Count = ArrayCount(Array);
 
-        VulkanReturnOnError(API->GetPhysicalDeviceSurfacePresentModesKHR(
+        VulkanCheck(API->GetPhysicalDeviceSurfacePresentModesKHR(
             Device->Physical,
             Vulkan->Surface,
             &Count,
@@ -302,7 +304,7 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
             .pBindings = Bindings,
         };
 
-        VulkanReturnOnError(API->CreateDescriptorSetLayout(
+        VulkanCheck(API->CreateDescriptorSetLayout(
             Device->Device,
             &SetLayoutInfo,
             0,
@@ -326,7 +328,7 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
             },
         };
 
-        VulkanReturnOnError(API->CreatePipelineLayout(
+        VulkanCheck(API->CreatePipelineLayout(
             Device->Device, &LayoutInfo, 0, &Vulkan->PipelineLayout
         ));
     }
@@ -360,11 +362,11 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
         VkShaderModule VertexModule = {0};
         VkShaderModule FragmentModule = {0};
 
-        VulkanReturnOnError(API->CreateShaderModule(
+        VulkanCheck(API->CreateShaderModule(
             Device->Device, &VertexModuleInfo, 0, &VertexModule
         ));
 
-        VulkanReturnOnError(API->CreateShaderModule(
+        VulkanCheck(API->CreateShaderModule(
             Device->Device, &FragmentModuleInfo, 0, &FragmentModule
         ));
 
@@ -488,7 +490,7 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
             .layout = Vulkan->PipelineLayout,
         };
 
-        VulkanReturnOnError(API->CreateGraphicsPipelines(
+        VulkanCheck(API->CreateGraphicsPipelines(
             Device->Device,
             0,
             1,
@@ -501,33 +503,33 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
         API->DestroyShaderModule(Device->Device, VertexModule, 0);
     }
 
-    // NOTE(vak): Vertex buffer
-
-    if (!VulkanCreateBuffer(
-        &Vulkan->VertexBuffer,
-        API,
-        Device,
-        MB(16),
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT|
-        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT|
-        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
-        true
-    ))
+    // NOTE(vak): Buffers
     {
-        return (false);
-    }
+        u32 MaxRectPerDraw = 4096;
+        u32 MaxVerticesPerDraw = MaxRectPerDraw * 6;
+        u32 VertexBufferSize = MaxVerticesPerDraw * sizeof(vulkan_vertex);
 
-    #undef VulkanReturnOnError
+        if (!VulkanCreateBuffer(
+            &Vulkan->VertexBuffer,
+            API,
+            Device,
+            VertexBufferSize,
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT|
+            VK_MEMORY_PROPERTY_HOST_COHERENT_BIT|
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+            true
+        ))
+        {
+            return (false);
+        }
+    }
 
     return (true);
 }
 
 local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
 {
-    #define VulkanReturnOnError(VulkanCall) \
-        if ((VulkanCall) != VK_SUCCESS) return
-
     vulkan_api* API = &Vulkan->API;
     vulkan_device* Device = &Vulkan->Device;
     vulkan_swapchain* Swapchain = &Vulkan->Swapchain;
@@ -548,9 +550,50 @@ local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
     if (Swapchain->Extent.width == 0) return;
     if (Swapchain->Extent.height == 0) return;
 
+    u32 VertexCount = 0;
+
+    if (Info->Renders)
+    {
+        render_array* Renders = Info->Renders;
+
+        u32 MaxVertices = Vulkan->VertexBuffer.Size / sizeof(vulkan_vertex);
+        u32 VerticesNeeded = Renders->RectCount;
+
+        Assert(MaxVertices >= VerticesNeeded);
+
+        vulkan_vertex* Vertices = (vulkan_vertex*)Vulkan->VertexBuffer.Mapping;
+
+        for (usize Index = 0; Index < Renders->RectCount; Index++)
+        {
+            render_rect* Rect = Renders->Rects + Index;
+
+            f32 MinX = Rect->X;
+            f32 MinY = Rect->Y;
+            f32 MaxX = Rect->X + Rect->W;
+            f32 MaxY = Rect->Y + Rect->H;
+
+            f32 R = Rect->R;
+            f32 G = Rect->G;
+            f32 B = Rect->B;
+            f32 A = Rect->A;
+
+            vulkan_vertex* V = Vertices + VertexCount;
+
+            V[0] = (vulkan_vertex){MinX, MinY, 0.0f, 0.0f, R, G, B, A};
+            V[1] = (vulkan_vertex){MinX, MaxY, 0.0f, 1.0f, R, G, B, A};
+            V[2] = (vulkan_vertex){MaxX, MaxY, 1.0f, 1.0f, R, G, B, A};
+
+            V[3] = (vulkan_vertex){MaxX, MaxY, 1.0f, 1.0f, R, G, B, A};
+            V[4] = (vulkan_vertex){MaxX, MinY, 1.0f, 0.0f, R, G, B, A};
+            V[5] = (vulkan_vertex){MinX, MinY, 0.0f, 0.0f, R, G, B, A};
+
+            VertexCount += 6;
+        }
+    }
+
     u32 ImageIndex = 0;
 
-    VulkanReturnOnError(API->AcquireNextImageKHR(
+    VulkanCheck(API->AcquireNextImageKHR(
         Device->Device,
         Swapchain->Swapchain,
         U64_MAX,
@@ -559,7 +602,7 @@ local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
         &ImageIndex
     ));
 
-    VulkanReturnOnError(API->ResetCommandBuffer(
+    VulkanCheck(API->ResetCommandBuffer(
         Vulkan->CommandBuffer,
         0
     ));
@@ -570,7 +613,7 @@ local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
         .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
     };
 
-    VulkanReturnOnError(API->BeginCommandBuffer(
+    VulkanCheck(API->BeginCommandBuffer(
         Vulkan->CommandBuffer,
         &BeginInfo
     ));
@@ -632,81 +675,76 @@ local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
 
     API->CmdBeginRendering(Vulkan->CommandBuffer, &RenderingInfo);
 
-    API->CmdBindPipeline(Vulkan->CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Vulkan->Pipeline);
-
-    VkViewport Viewport =
+    if (VertexCount)
     {
-        .x = 0.0f,
-        .y = 0.0f,
-        .width = (f32)Swapchain->Extent.width,
-        .height = (f32)Swapchain->Extent.height,
-        .minDepth = 0.0f,
-        .maxDepth = 1.0f,
-    };
+        API->CmdBindPipeline(Vulkan->CommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, Vulkan->Pipeline);
 
-    VkRect2D Scissor = RenderingInfo.renderArea;
-
-    API->CmdSetViewport(Vulkan->CommandBuffer, 0, 1, &Viewport);
-    API->CmdSetScissor(Vulkan->CommandBuffer, 0, 1, &Scissor);
-
-    {
-        vulkan_vertex* V = (vulkan_vertex*)Vulkan->VertexBuffer.Mapping;
-
-        V[0] = (vulkan_vertex){100.0f, 100.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f};
-        V[1] = (vulkan_vertex){150.0f, 200.0f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f};
-        V[2] = (vulkan_vertex){200.0f, 100.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f};
-    }
-
-    VkWriteDescriptorSet DescriptorWrites[] =
-    {
+        VkViewport Viewport =
         {
-            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-            .dstBinding = 0,
-            .dstArrayElement = 0,
-            .descriptorCount = 1,
-            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-            .pBufferInfo = &(VkDescriptorBufferInfo)
+            .x = 0.0f,
+            .y = 0.0f,
+            .width = (f32)Swapchain->Extent.width,
+            .height = (f32)Swapchain->Extent.height,
+            .minDepth = 0.0f,
+            .maxDepth = 1.0f,
+        };
+
+        VkRect2D Scissor = RenderingInfo.renderArea;
+
+        API->CmdSetViewport(Vulkan->CommandBuffer, 0, 1, &Viewport);
+        API->CmdSetScissor(Vulkan->CommandBuffer, 0, 1, &Scissor);
+
+        VkWriteDescriptorSet DescriptorWrites[] =
+        {
             {
-                .buffer = Vulkan->VertexBuffer.Buffer,
-                .offset = 0,
-                .range = Vulkan->VertexBuffer.Size,
+                .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                .dstBinding = 0,
+                .dstArrayElement = 0,
+                .descriptorCount = 1,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .pBufferInfo = &(VkDescriptorBufferInfo)
+                {
+                    .buffer = Vulkan->VertexBuffer.Buffer,
+                    .offset = 0,
+                    .range = Vulkan->VertexBuffer.Size,
+                },
             },
-        },
-    };
+        };
 
-    API->CmdPushDescriptorSet(
-        Vulkan->CommandBuffer,
-        VK_PIPELINE_BIND_POINT_GRAPHICS,
-        Vulkan->PipelineLayout,
-        0,
-        ArrayCount(DescriptorWrites),
-        DescriptorWrites
-    );
+        API->CmdPushDescriptorSet(
+            Vulkan->CommandBuffer,
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            Vulkan->PipelineLayout,
+            0,
+            ArrayCount(DescriptorWrites),
+            DescriptorWrites
+        );
 
-    vulkan_push_constants PushConstants =
-    {
-        .Projection =
+        vulkan_push_constants PushConstants =
         {
-            [0]     = 2.0f / (f32)Swapchain->Extent.width,
-            [5]     = 2.0f / (f32)Swapchain->Extent.height,
-            [10]    = 1.0f,
-            [15]    = 1.0f,
+            .Projection =
+            {
+                [0]     = 2.0f / (f32)Swapchain->Extent.width,
+                [5]     = 2.0f / (f32)Swapchain->Extent.height,
+                [10]    = 1.0f,
+                [15]    = 1.0f,
 
-            [12]    = -1.0f,
-            [13]    = -1.0f,
-        },
-    };
+                [12]    = -1.0f,
+                [13]    = -1.0f,
+            },
+        };
 
-    API->CmdPushConstants(
-        Vulkan->CommandBuffer,
-        Vulkan->PipelineLayout,
-        VK_SHADER_STAGE_VERTEX_BIT,
-        0,
-        sizeof(PushConstants),
-        &PushConstants
-    );
+        API->CmdPushConstants(
+            Vulkan->CommandBuffer,
+            Vulkan->PipelineLayout,
+            VK_SHADER_STAGE_VERTEX_BIT,
+            0,
+            sizeof(PushConstants),
+            &PushConstants
+        );
 
-    API->CmdDraw(Vulkan->CommandBuffer, 3, 1, 0, 0);
+        API->CmdDraw(Vulkan->CommandBuffer, VertexCount, 1, 0, 0);
+    }
 
     API->CmdEndRendering(Vulkan->CommandBuffer);
 
@@ -738,7 +776,7 @@ local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
         1, &PresentBarrier
     );
 
-    VulkanReturnOnError(API->EndCommandBuffer(
+    VulkanCheck(API->EndCommandBuffer(
         Vulkan->CommandBuffer
     ));
 
@@ -756,7 +794,7 @@ local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
         .pSignalSemaphores = &Vulkan->SubmitSemaphore,
     };
 
-    VulkanReturnOnError(API->QueueSubmit(
+    VulkanCheck(API->QueueSubmit(
         Device->Queue, 1, &SubmitInfo, 0
     ));
 
@@ -770,12 +808,10 @@ local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
         .pImageIndices = &ImageIndex,
     };
 
-    VulkanReturnOnError(API->QueuePresentKHR(
+    VulkanCheck(API->QueuePresentKHR(
         Device->Queue, &PresentInfo
     ));
 
-    VulkanReturnOnError(API->DeviceWaitIdle(Device->Device));
-
-    #undef VulkanReturnOnError
+    VulkanCheck(API->DeviceWaitIdle(Device->Device));
 }
 

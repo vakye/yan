@@ -16,14 +16,12 @@ local b32 VulkanCreateDevice(
     u32 VersionOfAPI
 )
 {
-    #define VulkanReturnOnError(VulkanCall) if ((VulkanCall) != VK_SUCCESS) return (false)
-
     // NOTE(vak): Physical device
     {
         VkPhysicalDevice Array[64] = {0};
         u32 Count = ArrayCount(Array);
 
-        VulkanReturnOnError(API->EnumeratePhysicalDevices(
+        VulkanCheck(API->EnumeratePhysicalDevices(
             Instance,
             &Count,
             Array
@@ -125,7 +123,7 @@ local b32 VulkanCreateDevice(
             .ppEnabledExtensionNames = Extensions,
         };
 
-        VulkanReturnOnError(API->CreateDevice(
+        VulkanCheck(API->CreateDevice(
             Device->Physical, &DeviceInfo, 0, &Device->Device
         ));
     }
@@ -136,8 +134,6 @@ local b32 VulkanCreateDevice(
             Device->Device, Device->QueueFamilyIndex, 0, &Device->Queue
         );
     }
-
-    #undef VulkanReturnOnError
 
     return (true);
 }

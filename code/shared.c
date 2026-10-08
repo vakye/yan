@@ -26,6 +26,8 @@
 // NOTE(vak): Macros
 // ============================================================================
 
+#define Assert(Expression) if (!(Expression)) __builtin_trap()
+
 #define ArrayCount(Array) (sizeof(Array) / sizeof((Array)[0]))
 
 #define Minimum(A, B) ((A) < (B) ? (A) : (B))

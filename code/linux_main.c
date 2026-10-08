@@ -1,6 +1,8 @@
 
 #include "shared.c"
+#include "render.c"
 #include "platform.c"
+#include "game.c"
 
 #include "vulkan_render.c"
 #include "wayland_window.c"
@@ -39,14 +41,25 @@ void LinuxEntry(s32 ArgCount, char* Args[], char* Envp[])
 
     ExitErrorIfNot(VulkanGood);
 
+    render_array Renders = {0};
+    {
+        persist render_rect Memory[4096] = {0};
+
+        Renders.Rects           = Memory;
+        Renders.MaxRectCount    = ArrayCount(Memory);
+    }
+
     while (!WaylandIsClosed(&Wayland))
     {
         WaylandPollEvents(&Wayland);
+
+        GameRender(&Renders);
 
         VulkanRender(&Vulkan, &(vulkan_render_info)
         {
             .TargetSizeX = WaylandGetSizeX(&Wayland),
             .TargetSizeY = WaylandGetSizeY(&Wayland),
+            .Renders     = &Renders,
         });
 
         WaylandPresent(&Wayland);
