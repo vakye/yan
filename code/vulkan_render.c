@@ -73,6 +73,11 @@ typedef struct
     f32 R, G, B, A;
 } vulkan_vertex;
 
+typedef struct
+{
+    f32 Projection[16];
+} vulkan_push_constants;
+
 local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
 {
     #define VulkanReturnOnError(VulkanCall) if ((VulkanCall) != VK_SUCCESS) return (false)
@@ -312,6 +317,13 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
             .setLayoutCount = 1,
             .pSetLayouts = &Vulkan->SetLayout,
+            .pushConstantRangeCount = 1,
+            .pPushConstantRanges = &(VkPushConstantRange)
+            {
+                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+                .offset = 0,
+                .size = sizeof(vulkan_push_constants), 
+            },
         };
 
         VulkanReturnOnError(API->CreatePipelineLayout(
@@ -640,9 +652,9 @@ local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
     {
         vulkan_vertex* V = (vulkan_vertex*)Vulkan->VertexBuffer.Mapping;
 
-        V[0] = (vulkan_vertex){-0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f};
-        V[1] = (vulkan_vertex){+0.0f, +0.5f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f};
-        V[2] = (vulkan_vertex){+0.5f, -0.5f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f};
+        V[0] = (vulkan_vertex){100.0f, 100.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f};
+        V[1] = (vulkan_vertex){150.0f, 200.0f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f};
+        V[2] = (vulkan_vertex){200.0f, 100.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f};
     }
 
     VkWriteDescriptorSet DescriptorWrites[] =
@@ -669,6 +681,29 @@ local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
         0,
         ArrayCount(DescriptorWrites),
         DescriptorWrites
+    );
+
+    vulkan_push_constants PushConstants =
+    {
+        .Projection =
+        {
+            [0]     = 2.0f / (f32)Swapchain->Extent.width,
+            [5]     = 2.0f / (f32)Swapchain->Extent.height,
+            [10]    = 1.0f,
+            [15]    = 1.0f,
+
+            [12]    = -1.0f,
+            [13]    = -1.0f,
+        },
+    };
+
+    API->CmdPushConstants(
+        Vulkan->CommandBuffer,
+        Vulkan->PipelineLayout,
+        VK_SHADER_STAGE_VERTEX_BIT,
+        0,
+        sizeof(PushConstants),
+        &PushConstants
     );
 
     API->CmdDraw(Vulkan->CommandBuffer, 3, 1, 0, 0);

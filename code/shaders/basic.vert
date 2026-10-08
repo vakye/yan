@@ -19,6 +19,11 @@ layout(location = 0) out VertexShaderOut
     vec4 Color;
 } Out;
 
+layout(push_constant) uniform PushConstants
+{
+    mat4 Projection;
+};
+
 void main()
 {
     vertex V = Vertices[gl_VertexIndex];
@@ -27,7 +32,7 @@ void main()
     vec2 TexCoord = vec2(V.U, V.V);
     vec4 Color = vec4(V.R, V.G, V.B, V.A);
 
-    gl_Position = vec4(Position, 0.0, 1.0);
+    gl_Position = Projection * vec4(Position, 0.0, 1.0);
     Out.TexCoord = TexCoord;
     Out.Color = Color;
 }

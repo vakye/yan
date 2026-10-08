@@ -52,6 +52,7 @@ typedef struct
     VulkanDeclare(CmdSetViewport);
     VulkanDeclare(CmdSetScissor);
     VulkanDeclare(CmdPushDescriptorSet);
+    VulkanDeclare(CmdPushConstants);
     VulkanDeclare(CmdDraw);
     VulkanDeclare(CmdPipelineBarrier);
     VulkanDeclare(QueueSubmit);
@@ -138,6 +139,7 @@ local b32 VulkanLoadInstanceAPI(
     VulkanLoad(CmdSetViewport);
     VulkanLoad(CmdSetScissor);
     VulkanLoad(CmdPushDescriptorSet);
+    VulkanLoad(CmdPushConstants);
     VulkanLoad(CmdDraw);
     VulkanLoad(CmdPipelineBarrier);
     VulkanLoad(QueueSubmit);
