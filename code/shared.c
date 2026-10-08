@@ -33,6 +33,11 @@
 
 #define Clamp(Min, Value, Max) Maximum(Min, Minimum(Max, Value))
 
+#define KB(Amount) ((ssize)(Amount) << 10)
+#define MB(Amount) ((ssize)(Amount) << 20)
+#define GB(Amount) ((ssize)(Amount) << 30)
+#define TB(Amount) ((ssize)(Amount) << 40)
+
 // ============================================================================
 // NOTE(vak): Types
 // ============================================================================

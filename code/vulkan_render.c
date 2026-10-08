@@ -10,6 +10,11 @@
 #include <vulkan/vulkan_core.h>
 #include <vulkan/vulkan_wayland.h>
 
+#include "vulkan_api.c"
+#include "vulkan_device.c"
+#include "vulkan_resources.c"
+#include "vulkan_swapchain.c"
+
 typedef enum
 {
     VulkanSurfaceKind_Nil = 0,
@@ -36,79 +41,21 @@ typedef struct
 
 typedef struct
 {
-    #define VulkanDeclare(Name) \
-        PFN_vk##Name Name
-
-    // NOTE(vak): Non-instance functions
-
-    VulkanDeclare(GetInstanceProcAddr);
-    VulkanDeclare(CreateInstance);
-    VulkanDeclare(EnumerateInstanceVersion);
-
-    // NOTE(vak): Instance functions
-
-    VulkanDeclare(CreateWaylandSurfaceKHR);
-    VulkanDeclare(EnumeratePhysicalDevices);
-    VulkanDeclare(GetPhysicalDeviceProperties);
-    VulkanDeclare(GetPhysicalDeviceQueueFamilyProperties);
-    VulkanDeclare(GetPhysicalDeviceSurfaceFormatsKHR);
-    VulkanDeclare(GetPhysicalDeviceSurfacePresentModesKHR);
-    VulkanDeclare(GetPhysicalDeviceSurfaceCapabilitiesKHR);
-    VulkanDeclare(CreateDevice);
-    VulkanDeclare(GetDeviceQueue);
-    VulkanDeclare(CreateCommandPool);
-    VulkanDeclare(AllocateCommandBuffers);
-    VulkanDeclare(CreateSemaphore);
-    VulkanDeclare(CreateImageView);
-    VulkanDeclare(DestroyImageView);
-    VulkanDeclare(CreatePipelineLayout);
-    VulkanDeclare(CreateShaderModule);
-    VulkanDeclare(DestroyShaderModule);
-    VulkanDeclare(CreateGraphicsPipelines);
-    VulkanDeclare(CreateSwapchainKHR);
-    VulkanDeclare(DestroySwapchainKHR);
-    VulkanDeclare(GetSwapchainImagesKHR);
-    VulkanDeclare(AcquireNextImageKHR);
-    VulkanDeclare(ResetCommandBuffer);
-    VulkanDeclare(BeginCommandBuffer);
-    VulkanDeclare(EndCommandBuffer);
-    VulkanDeclare(CmdBeginRendering);
-    VulkanDeclare(CmdEndRendering);
-    VulkanDeclare(CmdBindPipeline);
-    VulkanDeclare(CmdSetViewport);
-    VulkanDeclare(CmdSetScissor);
-    VulkanDeclare(CmdDraw);
-    VulkanDeclare(CmdPipelineBarrier);
-    VulkanDeclare(QueueSubmit);
-    VulkanDeclare(QueuePresentKHR);
-    VulkanDeclare(DeviceWaitIdle);
-
-    #undef VulkanDeclare
-} vulkan_api;
-
-typedef struct
-{
     u32                     VersionOfAPI;
     VkInstance              Instance;
     VkSurfaceKHR            Surface;
-    VkPhysicalDevice        PhysicalDevice;
-    u32                     QueueFamilyIndex;
-    VkDevice                Device;
-    VkQueue                 Queue;
+    vulkan_device           Device;
     VkCommandPool           CommandPool;
     VkCommandBuffer         CommandBuffer;
     VkSemaphore             AcquireSemaphore;
     VkSemaphore             SubmitSemaphore;
     VkSurfaceFormatKHR      SwapchainFormat;
     VkPresentModeKHR        PresentMode;
+    VkDescriptorSetLayout   SetLayout;
     VkPipelineLayout        PipelineLayout;
     VkPipeline              Pipeline;
-    VkExtent2D              SwapchainExtent;
-    VkSwapchainKHR          Swapchain;
-    u32                     SwapchainImageCount;
-    VkImage                 SwapchainImages[16];
-    VkImageView             SwapchainImageViews[16];
-
+    vulkan_buffer           VertexBuffer;
+    vulkan_swapchain        Swapchain;
     vulkan_api              API;
 } vulkan_state;
 
@@ -119,6 +66,12 @@ local void  VulkanRender    (vulkan_state* Vulkan, vulkan_render_info* Info);
 // NOTE(vak): Implementation
 // ============================================================================
 
+typedef struct
+{
+    f32 X, Y;
+    f32 U, V;
+    f32 R, G, B, A;
+} vulkan_vertex;
 
 local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
 {
@@ -128,20 +81,8 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
 
     vulkan_api* API = &Vulkan->API;
 
-    // NOTE(vak): Load non-instance functions
-    {
-        API->GetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)
-            Info->vkGetInstanceProcAddr;
-
-        API->CreateInstance = (PFN_vkCreateInstance)
-            API->GetInstanceProcAddr(0, "vkCreateInstance");
-
-        API->EnumerateInstanceVersion = (PFN_vkEnumerateInstanceVersion)
-            API->GetInstanceProcAddr(0, "vkEnumerateInstanceVersion");
-
-        if (!API->CreateInstance) return (false);
-        if (!API->EnumerateInstanceVersion) return (false);
-    }
+    if (!VulkanLoadNonInstanceAPI(API, Info->vkGetInstanceProcAddr))
+        return (false);
 
     // NOTE(vak): Create instance
     {
@@ -196,60 +137,10 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
         ));
     }
 
-    // NOTE(vak): Load instance functions
-    {
-        #define VulkanLoad(Name) \
-            API->Name = (PFN_vk##Name)API->GetInstanceProcAddr(Vulkan->Instance, "vk" #Name); \
-            if (!API->Name) \
-                return (false)
+    b32 LoadWayland = (Info->SurfaceKind == VulkanSurfaceKind_Wayland);
 
-        switch (Info->SurfaceKind)
-        {
-            default: return (false);
-
-            case VulkanSurfaceKind_Wayland:
-                VulkanLoad(CreateWaylandSurfaceKHR);
-                break;
-        }
-
-        VulkanLoad(CreateWaylandSurfaceKHR);
-        VulkanLoad(EnumeratePhysicalDevices);
-        VulkanLoad(GetPhysicalDeviceProperties);
-        VulkanLoad(GetPhysicalDeviceQueueFamilyProperties);
-        VulkanLoad(GetPhysicalDeviceSurfaceFormatsKHR);
-        VulkanLoad(GetPhysicalDeviceSurfacePresentModesKHR);
-        VulkanLoad(GetPhysicalDeviceSurfaceCapabilitiesKHR);
-        VulkanLoad(CreateDevice);
-        VulkanLoad(GetDeviceQueue);
-        VulkanLoad(CreateCommandPool);
-        VulkanLoad(AllocateCommandBuffers);
-        VulkanLoad(CreateSemaphore);
-        VulkanLoad(CreateImageView);
-        VulkanLoad(DestroyImageView);
-        VulkanLoad(CreatePipelineLayout);
-        VulkanLoad(CreateShaderModule);
-        VulkanLoad(DestroyShaderModule);
-        VulkanLoad(CreateGraphicsPipelines);
-        VulkanLoad(CreateSwapchainKHR);
-        VulkanLoad(DestroySwapchainKHR);
-        VulkanLoad(GetSwapchainImagesKHR);
-        VulkanLoad(AcquireNextImageKHR);
-        VulkanLoad(ResetCommandBuffer);
-        VulkanLoad(BeginCommandBuffer);
-        VulkanLoad(EndCommandBuffer);
-        VulkanLoad(CmdBeginRendering);
-        VulkanLoad(CmdEndRendering);
-        VulkanLoad(CmdBindPipeline);
-        VulkanLoad(CmdSetViewport);
-        VulkanLoad(CmdSetScissor);
-        VulkanLoad(CmdDraw);
-        VulkanLoad(CmdPipelineBarrier);
-        VulkanLoad(QueueSubmit);
-        VulkanLoad(QueuePresentKHR);
-        VulkanLoad(DeviceWaitIdle);
-
-        #undef VulkanLoad
-    }
+    if (!VulkanLoadInstanceAPI(API, Vulkan->Instance, LoadWayland))
+        return (false);
 
     // NOTE(vak): Create surface
     {
@@ -276,117 +167,10 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
         }
     }
 
-    // NOTE(vak): Physical device
-    {
-        VkPhysicalDevice Array[64] = {0};
-        u32 Count = ArrayCount(Array);
+    vulkan_device* Device = &Vulkan->Device;
 
-        VulkanReturnOnError(API->EnumeratePhysicalDevices(
-            Vulkan->Instance,
-            &Count,
-            Array
-        ));
-
-        VkPhysicalDevice Preferred = {0};
-        VkPhysicalDevice Fallback = {0};
-
-        for (usize Index = 0; Index < Count; Index++)
-        {
-            VkPhysicalDevice GPU = Array[Index];
-
-            VkPhysicalDeviceProperties Properties = {0};
-            API->GetPhysicalDeviceProperties(GPU, &Properties);
-
-            if (Properties.apiVersion < Vulkan->VersionOfAPI)
-                continue;
-
-            if (Properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-            {
-                if (!Preferred) Preferred = GPU;
-            }
-            else
-            {
-                if (!Fallback) Fallback = GPU;
-            }
-        }
-
-        Vulkan->PhysicalDevice = (Preferred) ? (Preferred) : (Fallback);
-        if (!Vulkan->PhysicalDevice) return (false);
-    }
-
-    // NOTE(vak): Queue family
-    {
-        Vulkan->QueueFamilyIndex = U32_MAX;
-
-        VkQueueFamilyProperties Array[64] = {0};
-        u32 Count = ArrayCount(Array);
-
-        API->GetPhysicalDeviceQueueFamilyProperties(
-            Vulkan->PhysicalDevice,
-            &Count,
-            Array
-        );
-
-        for (u32 Index = 0; Index < Count; Index++)
-        {
-            VkQueueFamilyProperties* Properties = Array + Index;
-
-            VkQueueFlags RequiredFlags =
-                VK_QUEUE_GRAPHICS_BIT |
-                VK_QUEUE_TRANSFER_BIT |
-                VK_QUEUE_COMPUTE_BIT;
-
-            if ((Properties->queueFlags & RequiredFlags) == RequiredFlags)
-            {
-                Vulkan->QueueFamilyIndex = Index;
-                break;
-            }
-        }
-
-        if (Vulkan->QueueFamilyIndex == U32_MAX)
-            return (false);
-    }
-
-    // NOTE(vak): Device
-    {
-        const char* Extensions[] =
-        {
-            "VK_KHR_swapchain",
-        };
-
-        VkPhysicalDeviceVulkan13Features Vulkan13Features =
-        {
-            .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES,
-            .dynamicRendering = true,
-        };
-
-        VkDeviceCreateInfo DeviceInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-            .pNext = &Vulkan13Features,
-            .queueCreateInfoCount = 1,
-            .pQueueCreateInfos = &(VkDeviceQueueCreateInfo)
-            {
-                .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-                .queueFamilyIndex = Vulkan->QueueFamilyIndex,
-                .queueCount = 1,
-                .pQueuePriorities = (f32[1]){1.0f},
-            },
-            .enabledExtensionCount = ArrayCount(Extensions),
-            .ppEnabledExtensionNames = Extensions,
-        };
-
-        VulkanReturnOnError(API->CreateDevice(
-            Vulkan->PhysicalDevice, &DeviceInfo, 0, &Vulkan->Device
-        ));
-    }
-
-    // NOTE(vak): Queue
-    {
-        API->GetDeviceQueue(
-            Vulkan->Device, Vulkan->QueueFamilyIndex, 0, &Vulkan->Queue
-        );
-    }
+    if (!VulkanCreateDevice(Device, API, Vulkan->Instance, Vulkan->VersionOfAPI))
+        return (false);
 
     // NOTE(vak): Command pool
     {
@@ -394,11 +178,11 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
         {
             .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
             .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-            .queueFamilyIndex = Vulkan->QueueFamilyIndex,
+            .queueFamilyIndex = Device->QueueFamilyIndex,
         };
 
         VulkanReturnOnError(API->CreateCommandPool(
-            Vulkan->Device, &PoolInfo, 0, &Vulkan->CommandPool
+            Device->Device, &PoolInfo, 0, &Vulkan->CommandPool
         ));
     }
 
@@ -413,7 +197,7 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
         };
 
         VulkanReturnOnError(API->AllocateCommandBuffers(
-            Vulkan->Device, &AllocateInfo, &Vulkan->CommandBuffer
+            Device->Device, &AllocateInfo, &Vulkan->CommandBuffer
         ));
     }
 
@@ -425,11 +209,11 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
         };
 
         VulkanReturnOnError(API->CreateSemaphore(
-            Vulkan->Device, &SemaphoreInfo, 0, &Vulkan->AcquireSemaphore
+            Device->Device, &SemaphoreInfo, 0, &Vulkan->AcquireSemaphore
         ));
 
         VulkanReturnOnError(API->CreateSemaphore(
-            Vulkan->Device, &SemaphoreInfo, 0, &Vulkan->SubmitSemaphore
+            Device->Device, &SemaphoreInfo, 0, &Vulkan->SubmitSemaphore
         ));
     }
 
@@ -439,7 +223,7 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
         u32 Count = ArrayCount(Array);
 
         VulkanReturnOnError(API->GetPhysicalDeviceSurfaceFormatsKHR(
-            Vulkan->PhysicalDevice,
+            Device->Physical,
             Vulkan->Surface,
             &Count,
             Array
@@ -473,7 +257,7 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
         u32 Count = ArrayCount(Array);
 
         VulkanReturnOnError(API->GetPhysicalDeviceSurfacePresentModesKHR(
-            Vulkan->PhysicalDevice,
+            Device->Physical,
             Vulkan->Surface,
             &Count,
             Array
@@ -493,15 +277,45 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
         }
     }
 
+    // NOTE(vak): Descriptor set layout
+    {
+        VkDescriptorSetLayoutBinding Bindings[] =
+        {
+            {
+                .binding = 0,
+                .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                .descriptorCount = 1,
+                .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+            },
+        };
+
+        VkDescriptorSetLayoutCreateInfo SetLayoutInfo =
+        {
+            .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+            .flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_PUSH_DESCRIPTOR_BIT,
+            .bindingCount = ArrayCount(Bindings),
+            .pBindings = Bindings,
+        };
+
+        VulkanReturnOnError(API->CreateDescriptorSetLayout(
+            Device->Device,
+            &SetLayoutInfo,
+            0,
+            &Vulkan->SetLayout
+        ));
+    }
+
     // NOTE(vak): Pipeline layout
     {
         VkPipelineLayoutCreateInfo LayoutInfo =
         {
             .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+            .setLayoutCount = 1,
+            .pSetLayouts = &Vulkan->SetLayout,
         };
 
         VulkanReturnOnError(API->CreatePipelineLayout(
-            Vulkan->Device, &LayoutInfo, 0, &Vulkan->PipelineLayout
+            Device->Device, &LayoutInfo, 0, &Vulkan->PipelineLayout
         ));
     }
 
@@ -535,11 +349,11 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
         VkShaderModule FragmentModule = {0};
 
         VulkanReturnOnError(API->CreateShaderModule(
-            Vulkan->Device, &VertexModuleInfo, 0, &VertexModule
+            Device->Device, &VertexModuleInfo, 0, &VertexModule
         ));
 
         VulkanReturnOnError(API->CreateShaderModule(
-            Vulkan->Device, &FragmentModuleInfo, 0, &FragmentModule
+            Device->Device, &FragmentModuleInfo, 0, &FragmentModule
         ));
 
         VkPipelineShaderStageCreateInfo Stages[2] =
@@ -663,7 +477,7 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
         };
 
         VulkanReturnOnError(API->CreateGraphicsPipelines(
-            Vulkan->Device,
+            Device->Device,
             0,
             1,
             &PipelineInfo,
@@ -671,8 +485,25 @@ local b32 VulkanSetup(vulkan_state* Vulkan, vulkan_setup_info* Info)
             &Vulkan->Pipeline
         ));
 
-        API->DestroyShaderModule(Vulkan->Device, FragmentModule, 0);
-        API->DestroyShaderModule(Vulkan->Device, VertexModule, 0);
+        API->DestroyShaderModule(Device->Device, FragmentModule, 0);
+        API->DestroyShaderModule(Device->Device, VertexModule, 0);
+    }
+
+    // NOTE(vak): Vertex buffer
+
+    if (!VulkanCreateBuffer(
+        &Vulkan->VertexBuffer,
+        API,
+        Device,
+        MB(16),
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT|
+        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT|
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+        true
+    ))
+    {
+        return (false);
     }
 
     #undef VulkanReturnOnError
@@ -686,104 +517,30 @@ local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
         if ((VulkanCall) != VK_SUCCESS) return
 
     vulkan_api* API = &Vulkan->API;
+    vulkan_device* Device = &Vulkan->Device;
+    vulkan_swapchain* Swapchain = &Vulkan->Swapchain;
 
     // NOTE(vak): Resize swapchain
 
-    if ((Vulkan->SwapchainExtent.width != Info->TargetSizeX) ||
-        (Vulkan->SwapchainExtent.height != Info->TargetSizeY))
-    {
-        VulkanReturnOnError(API->DeviceWaitIdle(Vulkan->Device));
+    VulkanResizeSwapchain(
+        Swapchain,
+        API,
+        Device,
+        Vulkan->Surface,
+        Vulkan->PresentMode,
+        Vulkan->SwapchainFormat,
+        Info->TargetSizeX,
+        Info->TargetSizeY
+    );
 
-        if (Vulkan->Swapchain)
-        {
-            for (usize Index = 0; Index < Vulkan->SwapchainImageCount; Index++)
-                API->DestroyImageView(Vulkan->Device, Vulkan->SwapchainImageViews[Index], 0);
-
-            API->DestroySwapchainKHR(Vulkan->Device, Vulkan->Swapchain, 0);
-        }
-
-        Vulkan->SwapchainExtent.width = Info->TargetSizeX;
-        Vulkan->SwapchainExtent.height = Info->TargetSizeY;
-
-        if ((Info->TargetSizeX == 0) || (Info->TargetSizeY == 0))
-            return;
-
-        VkSurfaceCapabilitiesKHR SurfaceCaps = {0};
-
-        VulkanReturnOnError(API->GetPhysicalDeviceSurfaceCapabilitiesKHR(
-            Vulkan->PhysicalDevice,
-            Vulkan->Surface,
-            &SurfaceCaps
-        ));
-
-        u32 MinImageCount = Clamp(SurfaceCaps.minImageCount, 3, SurfaceCaps.maxImageCount);
-
-        VkSwapchainCreateInfoKHR SwapchainInfo =
-        {
-            .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-            .surface = Vulkan->Surface,
-            .minImageCount = MinImageCount,
-            .imageFormat = Vulkan->SwapchainFormat.format,
-            .imageColorSpace = Vulkan->SwapchainFormat.colorSpace,
-            .imageExtent = Vulkan->SwapchainExtent,
-            .imageArrayLayers = 1,
-            .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-            .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
-            .preTransform = SurfaceCaps.currentTransform,
-            .presentMode = Vulkan->PresentMode,
-            .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-            .clipped = true,
-        };
-
-        VulkanReturnOnError(API->CreateSwapchainKHR(
-            Vulkan->Device, &SwapchainInfo, 0, &Vulkan->Swapchain
-        ));
-
-        Vulkan->SwapchainImageCount = ArrayCount(Vulkan->SwapchainImages);
-
-        VulkanReturnOnError(API->GetSwapchainImagesKHR(
-            Vulkan->Device,
-            Vulkan->Swapchain,
-            &Vulkan->SwapchainImageCount,
-            Vulkan->SwapchainImages
-        ));
-
-        for (u32 Index = 0; Index < Vulkan->SwapchainImageCount; Index++)
-        {
-            VkImageViewCreateInfo ViewInfo =
-            {
-                .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-                .image = Vulkan->SwapchainImages[Index],
-                .viewType = VK_IMAGE_VIEW_TYPE_2D,
-                .format = Vulkan->SwapchainFormat.format,
-                .components =
-                {
-                    .r = VK_COMPONENT_SWIZZLE_IDENTITY,
-                    .g = VK_COMPONENT_SWIZZLE_IDENTITY,
-                    .b = VK_COMPONENT_SWIZZLE_IDENTITY,
-                    .a = VK_COMPONENT_SWIZZLE_IDENTITY,
-                },
-                .subresourceRange =
-                {
-                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
-                    .levelCount = 1,
-                    .layerCount = 1,
-                },
-            };
-
-            VulkanReturnOnError(API->CreateImageView(
-                Vulkan->Device, &ViewInfo, 0, &Vulkan->SwapchainImageViews[Index]
-            ));
-        }
-
-        VulkanReturnOnError(API->DeviceWaitIdle(Vulkan->Device));
-    }
+    if (Swapchain->Extent.width == 0) return;
+    if (Swapchain->Extent.height == 0) return;
 
     u32 ImageIndex = 0;
 
     VulkanReturnOnError(API->AcquireNextImageKHR(
-        Vulkan->Device,
-        Vulkan->Swapchain,
+        Device->Device,
+        Swapchain->Swapchain,
         U64_MAX,
         Vulkan->AcquireSemaphore,
         0,
@@ -815,7 +572,7 @@ local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
         .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = Vulkan->SwapchainImages[ImageIndex],
+        .image = Swapchain->Images[ImageIndex],
         .subresourceRange =
         {
             .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -840,14 +597,14 @@ local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
         .renderArea =
         {
             .offset = {.x = 0, .y = 0},
-            .extent = Vulkan->SwapchainExtent,
+            .extent = Swapchain->Extent,
         },
         .layerCount = 1,
         .colorAttachmentCount = 1,
         .pColorAttachments = &(VkRenderingAttachmentInfo)
         {
             .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-            .imageView = Vulkan->SwapchainImageViews[ImageIndex],
+            .imageView = Swapchain->ImageViews[ImageIndex],
             .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
             .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
             .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
@@ -869,8 +626,8 @@ local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
     {
         .x = 0.0f,
         .y = 0.0f,
-        .width = (f32)Vulkan->SwapchainExtent.width,
-        .height = (f32)Vulkan->SwapchainExtent.height,
+        .width = (f32)Swapchain->Extent.width,
+        .height = (f32)Swapchain->Extent.height,
         .minDepth = 0.0f,
         .maxDepth = 1.0f,
     };
@@ -879,6 +636,40 @@ local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
 
     API->CmdSetViewport(Vulkan->CommandBuffer, 0, 1, &Viewport);
     API->CmdSetScissor(Vulkan->CommandBuffer, 0, 1, &Scissor);
+
+    {
+        vulkan_vertex* V = (vulkan_vertex*)Vulkan->VertexBuffer.Mapping;
+
+        V[0] = (vulkan_vertex){-0.5f, -0.5f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f};
+        V[1] = (vulkan_vertex){+0.0f, +0.5f, 0.5f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f};
+        V[2] = (vulkan_vertex){+0.5f, -0.5f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f};
+    }
+
+    VkWriteDescriptorSet DescriptorWrites[] =
+    {
+        {
+            .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+            .dstBinding = 0,
+            .dstArrayElement = 0,
+            .descriptorCount = 1,
+            .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            .pBufferInfo = &(VkDescriptorBufferInfo)
+            {
+                .buffer = Vulkan->VertexBuffer.Buffer,
+                .offset = 0,
+                .range = Vulkan->VertexBuffer.Size,
+            },
+        },
+    };
+
+    API->CmdPushDescriptorSet(
+        Vulkan->CommandBuffer,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        Vulkan->PipelineLayout,
+        0,
+        ArrayCount(DescriptorWrites),
+        DescriptorWrites
+    );
 
     API->CmdDraw(Vulkan->CommandBuffer, 3, 1, 0, 0);
 
@@ -893,7 +684,7 @@ local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
         .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-        .image = Vulkan->SwapchainImages[ImageIndex],
+        .image = Swapchain->Images[ImageIndex],
         .subresourceRange =
         {
             .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -931,7 +722,7 @@ local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
     };
 
     VulkanReturnOnError(API->QueueSubmit(
-        Vulkan->Queue, 1, &SubmitInfo, 0
+        Device->Queue, 1, &SubmitInfo, 0
     ));
 
     VkPresentInfoKHR PresentInfo =
@@ -940,15 +731,15 @@ local void VulkanRender(vulkan_state* Vulkan, vulkan_render_info* Info)
         .waitSemaphoreCount = 1,
         .pWaitSemaphores = &Vulkan->SubmitSemaphore,
         .swapchainCount = 1,
-        .pSwapchains = &Vulkan->Swapchain,
+        .pSwapchains = &Swapchain->Swapchain,
         .pImageIndices = &ImageIndex,
     };
 
     VulkanReturnOnError(API->QueuePresentKHR(
-        Vulkan->Queue, &PresentInfo
+        Device->Queue, &PresentInfo
     ));
 
-    VulkanReturnOnError(API->DeviceWaitIdle(Vulkan->Device));
+    VulkanReturnOnError(API->DeviceWaitIdle(Device->Device));
 
     #undef VulkanReturnOnError
 }
