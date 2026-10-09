@@ -7,12 +7,12 @@
 
 typedef struct
 {
-    f32 PlayerX;
-    f32 PlayerY;
-    f32 PlayerDX;
-    f32 PlayerDY;
-    f32 PlayerDDX;
-    f32 PlayerDDY;
+    f32 X;
+    f32 Y;
+    f32 DX;
+    f32 DY;
+    f32 DDX;
+    f32 DDY;
 
     b32 MoveUp;
     b32 MoveDown;
@@ -22,7 +22,7 @@ typedef struct
 
 local void GameSetup    (game_state* Game);
 local void GameUpdate   (game_state* Game, input_array* Inputs, f32 DeltaTime);
-local void GameRender   (game_state* Game, render_array* Renders, f32 DeltaTime);
+local void GameRender   (game_state* Game, render_array* Renders, f32 PredictDeltaTime);
 
 // ============================================================================
 // NOTE(vak): Implementation
@@ -30,8 +30,8 @@ local void GameRender   (game_state* Game, render_array* Renders, f32 DeltaTime)
 
 local void GameSetup(game_state* Game)
 {
-    Game->PlayerX = 1.0f;
-    Game->PlayerY = 1.0f;
+    Game->X = 1.0f;
+    Game->Y = 1.0f;
 }
 
 local void GameUpdate(game_state* Game, input_array* Inputs, f32 DeltaTime)
@@ -71,37 +71,32 @@ local void GameUpdate(game_state* Game, input_array* Inputs, f32 DeltaTime)
         DirectionY *= 0.7071067811865475244f;
     }
 
-    f32 Friction = 35.0f;
-    f32 Force = Friction * 8.0f;
+    f32 Friction = 50.0f;
+    f32 Force = Friction * 2.0f;
 
-    Game->PlayerDDX = Force*DirectionX - Friction*Game->PlayerDX;
-    Game->PlayerDDY = Force*DirectionY - Friction*Game->PlayerDY;
+    Game->DDX = Force * DirectionX - Friction * Game->DX;
+    Game->DDY = Force * DirectionY - Friction * Game->DY;
 
-    f32 ChangeX = Game->PlayerDX * DeltaTime + Game->PlayerDDX * 0.5f*DeltaTime*DeltaTime;
-    f32 ChangeY = Game->PlayerDY * DeltaTime + Game->PlayerDDY * 0.5f*DeltaTime*DeltaTime;
+    f32 ChangeX = DeltaTime*(Game->DX + Game->DDX*0.5f*DeltaTime);
+    f32 ChangeY = DeltaTime*(Game->DY + Game->DDY*0.5f*DeltaTime);
 
-    Game->PlayerX += ChangeX;
-    Game->PlayerY += ChangeY;
+    Game->X += ChangeX;
+    Game->Y += ChangeY;
 
-    Game->PlayerDX = ChangeX / DeltaTime;
-    Game->PlayerDY = ChangeY / DeltaTime;
+    Game->DX = ChangeX / DeltaTime;
+    Game->DY = ChangeY / DeltaTime;
 }
 
-local void GameRender(game_state* Game, render_array* Renders, f32 DeltaTime)
+local void GameRender(game_state* Game, render_array* Renders, f32 PredictDeltaTime)
 {
-    f32 PredictedPlayerX =
-        Game->PlayerX +
-        Game->PlayerDX * DeltaTime +
-        Game->PlayerDDX * 0.5f*DeltaTime*DeltaTime;
+    f32 DeltaTime = PredictDeltaTime;
 
-    f32 PredictedPlayerY =
-        Game->PlayerY +
-        Game->PlayerDY * DeltaTime +
-        Game->PlayerDDY * 0.5f*DeltaTime*DeltaTime;
+    f32 PredictedX = Game->X + DeltaTime*(Game->DX + Game->DDX*0.5f*DeltaTime);
+    f32 PredictedY = Game->Y + DeltaTime*(Game->DY + Game->DDY*0.5f*DeltaTime);
 
     RenderRect(
         Renders,
-        PredictedPlayerX*300.0f, PredictedPlayerY*300.0f,
+        PredictedX*300.0f, PredictedY*300.0f,
         100.0f, 100.0f,
         1.0f, 0.8f, 0.5f, 1.0f
     );

@@ -81,8 +81,10 @@ void LinuxEntry(s32 ArgCount, char* Args[], char* Envp[])
             UpdateTimer -= UpdateTimeStep;
         }
 
+        f32 PredictDeltaTime = UpdateTimer;
+
         ResetRenders(&Renders);
-        GameRender(&Game, &Renders, UpdateTimer);
+        GameRender(&Game, &Renders, PredictDeltaTime);
 
         VulkanRender(&Vulkan, &(vulkan_render_info)
         {
@@ -95,8 +97,11 @@ void LinuxEntry(s32 ArgCount, char* Args[], char* Envp[])
 
         f64 Elapsed = GetSecondsElapsed(FrameBegin, GetWallClock());
 
-        if (Elapsed < RenderTimeStep)
+        while (Elapsed < RenderTimeStep)
+        {
             Wait(RenderTimeStep - Elapsed);
+            Elapsed = GetSecondsElapsed(FrameBegin, GetWallClock());
+        }
 
         UpdateTimer += Elapsed;
         FrameBegin = GetWallClock();
